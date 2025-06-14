@@ -60,7 +60,37 @@ go build -o mock-lsp-server .
 
 # Run the server
 ./mock-lsp-server
+
+# Run with custom log directory
+./mock-lsp-server -log_dir /path/to/logs
+
+# Log logging configuration
+./mock-lsp-server -info
 ```
+
+### Logging Configuration
+
+The server supports flexible logging configuration:
+
+- `-log_dir`: Specify a custom log directory
+- `-config`: Use a custom configuration file
+- `-info`: Log logging configuration details
+
+Create a `config.json` for advanced logging setup:
+
+```json
+{
+  "log_dir": "/path/to/custom/logs",
+  "log_level": "info",
+  "log_file": "custom_logfile.log"
+}
+```
+
+Logs are created in the following priority:
+
+1. CLI-specified directory
+2. Configuration file directory
+3. User-specific default directory
 
 ## Development
 
