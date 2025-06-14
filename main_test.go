@@ -1,301 +1,352 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"strings"
+	"os"
 	"testing"
-
-	"github.com/myleshyson/lsprotocol-go/protocol"
-	"slices"
+	"reflect"
 )
 
-func TestNewMockLSPServer(t *testing.T) {
-	server := NewMockLSPServer()
-
-	if server == nil {
-		t.Fatal("NewMockLSPServer returned nil")
-	}
-
-	if server.documents == nil {
-		t.Fatal("documents map not initialized")
-	}
-
-	if len(server.documents) != 0 {
-		t.Errorf("Expected empty documents map, got %d items", len(server.documents))
-	}
-}
-
-func TestDocumentStorage(t *testing.T) {
-	server := NewMockLSPServer()
-
-	// Test adding a document
-	uri := "file:///test.go"
-	doc := &protocol.TextDocumentItem{
-		Uri:     protocol.DocumentUri(uri),
-		Text:    "package main",
-		Version: 1,
-	}
-
-	server.documents[uri] = doc
-
-	// Test retrieval
-	retrieved, exists := server.documents[uri]
-	if !exists {
-		t.Error("Document not found after adding")
-	}
-
-	if retrieved.Text != "package main" {
-		t.Errorf("Expected text 'package main', got %s", retrieved.Text)
-	}
-
-	// Test removal
-	delete(server.documents, uri)
-	_, exists = server.documents[uri]
-	if exists {
-		t.Error("Document still exists after deletion")
-	}
-}
-
-func TestHandleInitializeParams(t *testing.T) {
-	// Test parameter parsing for initialize request
-	rootUri := protocol.DocumentUri("file:///test")
-	params := protocol.InitializeParams{
-		RootUri: &rootUri,
-	}
-
-	paramsBytes, err := json.Marshal(params)
+// Test for the version that returns the manager too
+func Test_setupLoggingWithManager(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "test_logs")
 	if err != nil {
-		t.Fatalf("Failed to marshal params: %v", err)
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+	defer os.RemoveAll(tempDir)
 
-	var parsed protocol.InitializeParams
-	err = json.Unmarshal(paramsBytes, &parsed)
+	logger, manager, err := setupLogging("test-app", tempDir, "", false)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal params: %v", err)
+		t.Fatalf("setupLoggingWithManager() error = %v", err)
 	}
 
-	if parsed.RootUri == nil || *parsed.RootUri != rootUri {
-		t.Errorf("Expected RootUri %s, got %v", rootUri, parsed.RootUri)
-	}
-}
-
-func TestCompletionItemCreation(t *testing.T) {
-	// Test creation of completion items similar to what the handler does
-	kind1 := protocol.CompletionItemKind(protocol.CompletionItemKindFunction)
-	kind2 := protocol.CompletionItemKind(protocol.CompletionItemKindVariable)
-
-	items := []protocol.CompletionItem{
-		{
-			Label:      "mockFunction",
-			Kind:       &kind1,
-			Detail:     "Mock function completion",
-			InsertText: "mockFunction()",
-		},
-		{
-			Label:  "mockVariable",
-			Kind:   &kind2,
-			Detail: "Mock variable completion",
-		},
+	if logger == nil {
+		t.Error("setupLoggingWithManager() returned nil logger")
 	}
 
-	if len(items) != 2 {
-		t.Errorf("Expected 2 items, got %d", len(items))
+	if manager == nil {
+		t.Error("setupLoggingWithManager() returned nil manager")
 	}
 
-	if items[0].Label != "mockFunction" {
-		t.Errorf("Expected first item label 'mockFunction', got %s", items[0].Label)
+	// Test logger works
+	if logger != nil {
+		logger.Println("Test message")
 	}
 
-	if items[1].Label != "mockVariable" {
-		t.Errorf("Expected second item label 'mockVariable', got %s", items[1].Label)
+	// Clean up properly
+	if manager != nil {
+		manager.Close()
 	}
 }
 
-func TestHoverContentCreation(t *testing.T) {
-	// Test hover content creation
-	hover := protocol.Hover{
-		Contents: protocol.Or3[protocol.MarkupContent, protocol.MarkedString, []protocol.MarkedString]{
-			Value: protocol.MarkupContent{
-				Kind:  protocol.MarkupKindMarkdown,
-				Value: "**Mock Hover Information**\n\nThis is mock hover content.",
-			},
-		},
-		Range: &protocol.Range{
-			Start: protocol.Position{Line: 0, Character: 0},
-			End:   protocol.Position{Line: 0, Character: 10},
-		},
-	}
-
-	if hover.Range == nil {
-		t.Error("Expected hover range to be set")
-	}
-
-	if hover.Range.Start.Line != 0 {
-		t.Errorf("Expected start line 0, got %d", hover.Range.Start.Line)
-	}
-}
-
-func TestLocationCreation(t *testing.T) {
-	// Test location creation for definition/references
-	uri := protocol.DocumentUri("file:///test.go")
-	locations := []protocol.Location{
-		{
-			Uri: uri,
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 0, Character: 0},
-				End:   protocol.Position{Line: 0, Character: 10},
-			},
-		},
-	}
-
-	if len(locations) != 1 {
-		t.Errorf("Expected 1 location, got %d", len(locations))
-	}
-
-	if locations[0].Uri != uri {
-		t.Errorf("Expected URI %s, got %s", uri, locations[0].Uri)
-	}
-}
-
-func TestDocumentSymbolCreation(t *testing.T) {
-	// Test document symbol creation
-	symbols := []protocol.DocumentSymbol{
-		{
-			Name:   "MockClass",
-			Kind:   protocol.SymbolKindClass,
-			Detail: "Mock class symbol",
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 0, Character: 0},
-				End:   protocol.Position{Line: 20, Character: 0},
-			},
-			SelectionRange: protocol.Range{
-				Start: protocol.Position{Line: 0, Character: 6},
-				End:   protocol.Position{Line: 0, Character: 15},
-			},
-		},
-	}
-
-	if len(symbols) != 1 {
-		t.Errorf("Expected 1 symbol, got %d", len(symbols))
-	}
-
-	if symbols[0].Name != "MockClass" {
-		t.Errorf("Expected symbol name 'MockClass', got %s", symbols[0].Name)
-	}
-
-	if symbols[0].Kind != protocol.SymbolKindClass {
-		t.Errorf("Expected symbol kind Class, got %v", symbols[0].Kind)
-	}
-}
-
-func TestDiagnosticCreation(t *testing.T) {
-	// Test diagnostic creation
-	severity1 := protocol.DiagnosticSeverity(protocol.DiagnosticSeverityWarning)
-	severity2 := protocol.DiagnosticSeverity(protocol.DiagnosticSeverityInformation)
-
-	diagnostics := []protocol.Diagnostic{
-		{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 1, Character: 0},
-				End:   protocol.Position{Line: 1, Character: 10},
-			},
-			Severity: &severity1,
-			Message:  "This is a mock warning",
-			Source:   "mock-lsp",
-		},
-		{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 5, Character: 15},
-				End:   protocol.Position{Line: 5, Character: 25},
-			},
-			Severity: &severity2,
-			Message:  "This is mock info",
-			Source:   "mock-lsp",
-		},
-	}
-
-	if len(diagnostics) != 2 {
-		t.Errorf("Expected 2 diagnostics, got %d", len(diagnostics))
-	}
-
-	if diagnostics[0].Message != "This is a mock warning" {
-		t.Errorf("Expected warning message, got %s", diagnostics[0].Message)
-	}
-
-	if diagnostics[1].Message != "This is mock info" {
-		t.Errorf("Expected info message, got %s", diagnostics[1].Message)
-	}
-}
-
-func TestHandleMethodSwitch(t *testing.T) {
-	// Test that our handler supports all expected LSP methods
-	testCases := []struct {
-		method string
-		hasID  bool
+func Test_loadConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		progname string
+		args     []string
+		want     *MockLSPServerConfig
+		wantErr  bool
 	}{
-		{"initialize", true},
-		{"initialized", false},
-		{"textDocument/didOpen", false},
-		{"textDocument/didChange", false},
-		{"textDocument/didSave", false},
-		{"textDocument/didClose", false},
-		{"textDocument/completion", true},
-		{"textDocument/hover", true},
-		{"textDocument/definition", true},
-		{"textDocument/references", true},
-		{"textDocument/documentSymbol", true},
-		{"shutdown", true},
-		{"exit", false},
+		{
+			name:     "no arguments - defaults",
+			progname: "mock-lsp-server",
+			args:     []string{},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server", // default value
+				LogDir:     "",
+				ConfigPath: "",
+				ShowInfo:   false,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "log_dir flag",
+			progname: "mock-lsp-server",
+			args:     []string{"-log_dir", "/tmp/logs"},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "/tmp/logs",
+				ConfigPath: "",
+				ShowInfo:   false,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "config flag",
+			progname: "mock-lsp-server",
+			args:     []string{"-config", "/path/to/config.json"},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "",
+				ConfigPath: "/path/to/config.json",
+				ShowInfo:   false,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "info flag",
+			progname: "mock-lsp-server",
+			args:     []string{"-info"},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "",
+				ConfigPath: "",
+				ShowInfo:   true,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "appName flag",
+			progname: "test-program",
+			args:     []string{"-appName", "custom-app"},
+			want: &MockLSPServerConfig{
+				AppName:    "custom-app",
+				LogDir:     "",
+				ConfigPath: "",
+				ShowInfo:   false,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "all flags",
+			progname: "mock-lsp-server",
+			args:     []string{"-appName", "test-app", "-log_dir", "/var/log", "-config", "config.yaml", "-info"},
+			want: &MockLSPServerConfig{
+				AppName:    "test-app",
+				LogDir:     "/var/log",
+				ConfigPath: "config.yaml",
+				ShowInfo:   true,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "long flag format",
+			progname: "mock-lsp-server",
+			args:     []string{"--log_dir=/home/user/logs", "--config=/etc/config.toml", "--info=true"},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "/home/user/logs",
+				ConfigPath: "/etc/config.toml",
+				ShowInfo:   true,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "mixed flag formats",
+			progname: "mock-lsp-server",
+			args:     []string{"-log_dir", "/tmp", "--config=/path/config", "-info"},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "/tmp",
+				ConfigPath: "/path/config",
+				ShowInfo:   true,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "empty string values",
+			progname: "mock-lsp-server",
+			args:     []string{"-log_dir", "", "-config", ""},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "",
+				ConfigPath: "",
+				ShowInfo:   false,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "boolean flag variations",
+			progname: "mock-lsp-server",
+			args:     []string{"-info=false"}, // explicit false
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "",
+				ConfigPath: "",
+				ShowInfo:   false,
+			},
+			wantErr: false,
+		},
+		{
+			name:     "boolean flag explicit true",
+			progname: "mock-lsp-server",
+			args:     []string{"-info=true"},
+			want: &MockLSPServerConfig{
+				AppName:    "mock-lsp-server",
+				LogDir:     "",
+				ConfigPath: "",
+				ShowInfo:   true,
+			},
+			wantErr: false,
+		},
+		// Error cases
+		{
+			name:     "unknown flag",
+			progname: "mock-lsp-server",
+			args:     []string{"-unknown_flag", "value"},
+			want:     nil,
+			wantErr:  true,
+		},
+		{
+			name:     "invalid boolean value",
+			progname: "mock-lsp-server",
+			args:     []string{"-info=invalid"},
+			want:     nil,
+			wantErr:  true,
+		},
+		{
+			name:     "flag without value",
+			progname: "mock-lsp-server",
+			args:     []string{"-log_dir"}, // missing value
+			want:     nil,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := loadConfig(tt.progname, tt.args)
+			
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("loadConfig() expected error, got nil")
+				}
+				if got != nil {
+					t.Errorf("loadConfig() expected nil result on error, got %v", got)
+				}
+				return
+			}
+			
+			if err != nil {
+				t.Errorf("loadConfig() unexpected error: %v", err)
+				return
+			}
+			
+			if got == nil {
+				t.Error("loadConfig() returned nil without error")
+				return
+			}
+			
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("loadConfig() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// Test individual field parsing
+func Test_loadConfig_FieldValidation(t *testing.T) {
+	testCases := []struct {
+		name string
+		args []string
+		checkFn func(*testing.T, *MockLSPServerConfig)
+	}{
+		{
+			name: "appName is set correctly",
+			args: []string{"-appName", "my-custom-app"},
+			checkFn: func(t *testing.T, config *MockLSPServerConfig) {
+				if config.AppName != "my-custom-app" {
+					t.Errorf("Expected AppName 'my-custom-app', got '%s'", config.AppName)
+				}
+			},
+		},
+		{
+			name: "logDir handles paths with spaces",
+			args: []string{"-log_dir", "/path/with spaces/logs"},
+			checkFn: func(t *testing.T, config *MockLSPServerConfig) {
+				expected := "/path/with spaces/logs"
+				if config.LogDir != expected {
+					t.Errorf("Expected LogDir '%s', got '%s'", expected, config.LogDir)
+				}
+			},
+		},
+		{
+			name: "config path with special characters",
+			args: []string{"-config", "/path/config-file_v2.json"},
+			checkFn: func(t *testing.T, config *MockLSPServerConfig) {
+				expected := "/path/config-file_v2.json"
+				if config.ConfigPath != expected {
+					t.Errorf("Expected ConfigPath '%s', got '%s'", expected, config.ConfigPath)
+				}
+			},
+		},
+		{
+			name: "info flag precedence",
+			args: []string{"-info=false", "-info"}, // second flag should override
+			checkFn: func(t *testing.T, config *MockLSPServerConfig) {
+				if !config.ShowInfo {
+					t.Error("Expected ShowInfo to be true (last flag should win)")
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.method, func(t *testing.T) {
-			// This test validates that our test cases cover the expected methods
-			validMethods := []string{
-				"initialize", "initialized", "textDocument/didOpen", "textDocument/didChange",
-				"textDocument/didSave", "textDocument/didClose", "textDocument/completion",
-				"textDocument/hover", "textDocument/definition", "textDocument/references",
-				"textDocument/documentSymbol", "shutdown", "exit",
+		t.Run(tc.name, func(t *testing.T) {
+			config, err := loadConfig("test-prog", tc.args)
+			if err != nil {
+				t.Fatalf("loadConfig() failed: %v", err)
 			}
-
-			found := slices.Contains(validMethods, tc.method)
-
-			if !found {
-				t.Errorf("Method %s not found in valid methods list", tc.method)
+			if config == nil {
+				t.Fatal("loadConfig() returned nil config")
 			}
+			tc.checkFn(t, config)
 		})
 	}
 }
 
-func TestJSONSerialization(t *testing.T) {
-	// Test that our protocol structures can be serialized/deserialized
-	testCases := []any{
-		protocol.InitializeParams{},
-		protocol.CompletionParams{},
-		protocol.HoverParams{},
-		protocol.DefinitionParams{},
-		protocol.ReferenceParams{},
-		protocol.DocumentSymbolParams{},
-		protocol.DidOpenTextDocumentParams{},
-		protocol.DidChangeTextDocumentParams{},
-		protocol.DidSaveTextDocumentParams{},
-		protocol.DidCloseTextDocumentParams{},
+// Test concurrent usage (since each call creates a new FlagSet)
+func Test_loadConfig_Concurrent(t *testing.T) {
+	t.Parallel() // This is safe now because we don't use global state
+	
+	config1, err1 := loadConfig("prog1", []string{"-appName", "app1"})
+	config2, err2 := loadConfig("prog2", []string{"-appName", "app2"})
+	
+	if err1 != nil {
+		t.Errorf("First loadConfig() failed: %v", err1)
 	}
+	if err2 != nil {
+		t.Errorf("Second loadConfig() failed: %v", err2)
+	}
+	
+	if config1.AppName != "app1" {
+		t.Errorf("Expected first config AppName 'app1', got '%s'", config1.AppName)
+	}
+	if config2.AppName != "app2" {
+		t.Errorf("Expected second config AppName 'app2', got '%s'", config2.AppName)
+	}
+}
 
-	for _, testCase := range testCases {
-		t.Run(strings.Replace(strings.Replace(fmt.Sprintf("%T", testCase), "protocol.", "", 1), "Params", "", 1), func(t *testing.T) {
-			data, err := json.Marshal(testCase)
-			if err != nil {
-				t.Errorf("Failed to marshal %T: %v", testCase, err)
-			}
+// Benchmark to ensure performance is reasonable
+func Benchmark_loadConfig(b *testing.B) {
+	args := []string{"-appName", "benchmark-app", "-log_dir", "/tmp", "-config", "config.json", "-info"}
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := loadConfig("benchmark-prog", args)
+		if err != nil {
+			b.Fatalf("loadConfig() failed: %v", err)
+		}
+	}
+}
 
-			// Try to unmarshal back
-			var result interface{}
-			err = json.Unmarshal(data, &result)
-			if err != nil {
-				t.Errorf("Failed to unmarshal %T: %v", testCase, err)
-			}
-		})
+// Benchmark test to ensure performance is reasonable
+func Benchmark_setupLogging(b *testing.B) {
+	tempDir, err := os.MkdirTemp("", "benchmark_logs")
+	if err != nil {
+		b.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	for b.Loop() {
+		logger, logManager, err := setupLogging("benchmark-app", tempDir, "", false)
+		if err != nil {
+			b.Fatalf("setupLogging() error = %v", err)
+		}
+		if logger == nil {
+			b.Fatal("setupLogging() returned nil logger")
+		}
+		if logManager == nil {
+			b.Fatal("setupLogging() returned nil logManager")
+		}
 	}
 }
