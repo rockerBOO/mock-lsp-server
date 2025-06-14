@@ -8,32 +8,80 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"mock-lsp-server/directories" // Replace with your actual module path
 )
 
+// LogLevel represents different log levels
+type LogLevel int
+
+const (
+	LogLevelDebug LogLevel = iota
+	LogLevelInfo
+	LogLevelWarning
+	LogLevelError
+)
+
+// String returns the string representation of the log level
+func (l LogLevel) String() string {
+	switch l {
+	case LogLevelDebug:
+		return "DEBUG"
+	case LogLevelInfo:
+		return "INFO"
+	case LogLevelWarning:
+		return "WARNING"
+	case LogLevelError:
+		return "ERROR"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// ParseLogLevel parses a string into a LogLevel
+func ParseLogLevel(level string) LogLevel {
+	switch strings.ToUpper(level) {
+	case "DEBUG":
+		return LogLevelDebug
+	case "INFO":
+		return LogLevelInfo
+	case "WARNING", "WARN":
+		return LogLevelWarning
+	case "ERROR":
+		return LogLevelError
+	default:
+		return LogLevelInfo // Default to info
+	}
+}
+
 // Config represents the logging configuration
 type Config struct {
-	LogDir   string `json:"log_dir"`
-	LogLevel string `json:"log_level"`
-	LogFile  string `json:"log_file"`
+	LogDir     string `json:"log_dir"`
+	LogLevel   string `json:"log_level"`
+	LogFile    string `json:"log_file"`
+	MaxSize    int    `json:"max_size_mb"` // Maximum size in MB before rotation
+	MaxBackups int    `json:"max_backups"` // Maximum number of backup files
 }
 
 // Manager handles logging operations with directory resolution and configuration
 type Manager struct {
-	appName  string
-	resolver *directories.DirectoryResolver
-	config   *Config
-	logger   *log.Logger
-	logFile  *os.File
+	appName      string
+	resolver     *directories.DirectoryResolver
+	config       *Config
+	logger       *log.Logger
+	logFile      *os.File
+	currentLevel LogLevel
 }
 
 // NewManager creates a new logging manager
 func NewManager(appName string, user *user.User, shouldEnsureDir bool) *Manager {
 	return &Manager{
-		appName:  appName,
-		resolver: directories.NewDirectoryResolver(appName, user, shouldEnsureDir),
-		config:   &Config{},
+		appName:      appName,
+		resolver:     directories.NewDirectoryResolver(appName, user, shouldEnsureDir),
+		config:       &Config{LogLevel: "info"}, // Default to info level
+		currentLevel: LogLevelInfo,
 	}
 }
 
@@ -128,8 +176,11 @@ func (lm *Manager) Initialize(cliLogDir, configPath string) error {
 	// Store file handle for cleanup
 	lm.logFile = logFile
 
-	// Create logger
-	lm.logger = log.New(logFile, fmt.Sprintf("[%s] ", lm.appName), log.LstdFlags|log.Lshortfile)
+	// Set log level from config
+	lm.currentLevel = ParseLogLevel(lm.config.LogLevel)
+
+	// Create logger with timestamp and source info
+	lm.logger = log.New(logFile, "", 0) // No prefix, we'll handle it ourselves
 
 	return nil
 }
@@ -150,39 +201,131 @@ func (lm *Manager) GetLogFilePath(cliLogDir string) (string, error) {
 	return filepath.Join(logDirectory, logFileName), nil
 }
 
-// Log writes a message to the log
-func (lm *Manager) Log(message string) {
-	if lm.logger != nil {
-		lm.logger.Println(message)
+// shouldLog checks if a message at the given level should be logged
+func (lm *Manager) shouldLog(level LogLevel) bool {
+	return level >= lm.currentLevel
+}
+
+// logWithLevel writes a structured log message with the given level
+func (lm *Manager) logWithLevel(level LogLevel, format string, args ...interface{}) {
+	if lm.logger == nil || !lm.shouldLog(level) {
+		return
 	}
+
+	timestamp := time.Now().Format("2006/01/02 15:04:05")
+	message := fmt.Sprintf(format, args...)
+	logEntry := fmt.Sprintf("%s [%s] [%s] %s", timestamp, lm.appName, level.String(), message)
+	lm.logger.Println(logEntry)
+}
+
+// Log writes a general message to the log (INFO level)
+func (lm *Manager) Log(message string) {
+	lm.logWithLevel(LogLevelInfo, "%s", message)
+}
+
+// Debug writes a debug-level message
+func (lm *Manager) Debug(format string, args ...interface{}) {
+	lm.logWithLevel(LogLevelDebug, format, args...)
 }
 
 // Info writes an info-level message
-func (lm *Manager) Info(message string) {
-	if lm.logger != nil {
-		lm.logger.Printf("INFO: %s", message)
-	}
+func (lm *Manager) Info(format string, args ...interface{}) {
+	lm.logWithLevel(LogLevelInfo, format, args...)
+}
+
+// Warning writes a warning-level message
+func (lm *Manager) Warning(format string, args ...interface{}) {
+	lm.logWithLevel(LogLevelWarning, format, args...)
 }
 
 // Error writes an error-level message
-func (lm *Manager) Error(message string) {
-	if lm.logger != nil {
-		lm.logger.Printf("ERROR: %s", message)
+func (lm *Manager) Error(format string, args ...interface{}) {
+	lm.logWithLevel(LogLevelError, format, args...)
+}
+
+// SetLogLevel changes the current log level
+func (lm *Manager) SetLogLevel(level LogLevel) {
+	lm.currentLevel = level
+}
+
+// GetLogLevel returns the current log level
+func (lm *Manager) GetLogLevel() LogLevel {
+	return lm.currentLevel
+}
+
+// StructuredLogger provides a structured logging interface
+type StructuredLogger struct {
+	manager *Manager
+	context map[string]interface{}
+}
+
+// NewStructuredLogger creates a new structured logger
+func (lm *Manager) NewStructuredLogger() *StructuredLogger {
+	return &StructuredLogger{
+		manager: lm,
+		context: make(map[string]interface{}),
 	}
 }
 
-// LogWarning writes a warning-level message
-func (lm *Manager) Warning(message string) {
-	if lm.logger != nil {
-		lm.logger.Printf("WARNING: %s", message)
+// WithContext adds context to the logger
+func (sl *StructuredLogger) WithContext(key string, value interface{}) *StructuredLogger {
+	newLogger := &StructuredLogger{
+		manager: sl.manager,
+		context: make(map[string]interface{}),
 	}
+	// Copy existing context
+	for k, v := range sl.context {
+		newLogger.context[k] = v
+	}
+	// Add new context
+	newLogger.context[key] = value
+	return newLogger
 }
 
-// LogDebug writes a debug-level message
-func (lm *Manager) Debug(message string) {
-	if lm.logger != nil {
-		lm.logger.Printf("DEBUG: %s", message)
+// formatMessage formats a message with context
+func (sl *StructuredLogger) formatMessage(format string, args ...interface{}) string {
+	message := fmt.Sprintf(format, args...)
+	if len(sl.context) > 0 {
+		contextStr := ""
+		for k, v := range sl.context {
+			if contextStr != "" {
+				contextStr += " "
+			}
+			contextStr += fmt.Sprintf("%s=%v", k, v)
+		}
+		return fmt.Sprintf("%s [%s]", message, contextStr)
 	}
+	return message
+}
+
+// Debug logs a debug message with context
+func (sl *StructuredLogger) Debug(format string, args ...interface{}) {
+	sl.manager.Debug("%s", sl.formatMessage(format, args...))
+}
+
+// Info logs an info message with context
+func (sl *StructuredLogger) Info(format string, args ...interface{}) {
+	sl.manager.Info("%s", sl.formatMessage(format, args...))
+}
+
+// Warning logs a warning message with context
+func (sl *StructuredLogger) Warning(format string, args ...interface{}) {
+	sl.manager.Warning("%s", sl.formatMessage(format, args...))
+}
+
+// Error logs an error message with context
+func (sl *StructuredLogger) Error(format string, args ...interface{}) {
+	sl.manager.Error("%s", sl.formatMessage(format, args...))
+}
+
+// Printf provides compatibility with standard logger interface
+func (sl *StructuredLogger) Printf(format string, args ...interface{}) {
+	sl.Info(format, args...)
+}
+
+// Println provides compatibility with standard logger interface
+func (sl *StructuredLogger) Println(args ...interface{}) {
+	sl.Info("%s", fmt.Sprint(args...))
 }
 
 // Close closes the log file and cleans up resources

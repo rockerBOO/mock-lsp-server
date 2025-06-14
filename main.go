@@ -58,7 +58,9 @@ func main() {
 
 	logger.Println("Starting Mock LSP Server...")
 
-	server := lsp.NewMockLSPServer()
+	// Create structured logger for better logging
+	structuredLogger := logManager.NewStructuredLogger().WithContext("component", "lsp-server")
+	server := lsp.NewMockLSPServerWithStructuredLogger(structuredLogger, logger)
 
 	// Create JSON-RPC connection using stdio
 	handler := func(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) (any, error) {
@@ -78,7 +80,7 @@ func main() {
 
 	defer conn.Close()
 
-	logger.Println("Mock LSP Server started, waiting for requests...")
+	structuredLogger.Info("Mock LSP Server started, waiting for requests...")
 
 	// Wait for the connection to close
 	<-conn.DisconnectNotify()

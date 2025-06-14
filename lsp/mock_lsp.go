@@ -3,24 +3,77 @@ package lsp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"reflect"
 
 	"github.com/myleshyson/lsprotocol-go/protocol"
 	"github.com/sourcegraph/jsonrpc2"
+	"mock-lsp-server/logging"
 )
 
 // MockLSPServer implements the LSP server handlers
 type MockLSPServer struct {
-	documents map[string]*protocol.TextDocumentItem
+	documents       map[string]*protocol.TextDocumentItem
+	logger          *log.Logger
+	structuredLogger *logging.StructuredLogger
+	errorHandler    *ErrorHandler
 }
 
 // NewMockLSPServer creates a new mock LSP server instance
-func NewMockLSPServer() *MockLSPServer {
-	return &MockLSPServer{
+func NewMockLSPServer(logger *log.Logger) *MockLSPServer {
+	server := &MockLSPServer{
 		documents: make(map[string]*protocol.TextDocumentItem),
+		logger:    logger,
+	}
+	server.errorHandler = NewErrorHandler(server)
+	return server
+}
+
+// NewMockLSPServerWithStructuredLogger creates a new mock LSP server with structured logging
+func NewMockLSPServerWithStructuredLogger(structuredLogger *logging.StructuredLogger, fallbackLogger *log.Logger) *MockLSPServer {
+	server := &MockLSPServer{
+		documents:        make(map[string]*protocol.TextDocumentItem),
+		logger:           fallbackLogger,
+		structuredLogger: structuredLogger,
+	}
+	server.errorHandler = NewErrorHandler(server)
+	return server
+}
+
+// logInfo logs an info message using structured logger if available, otherwise fallback
+func (s *MockLSPServer) logInfo(format string, args ...interface{}) {
+	if s.structuredLogger != nil {
+		s.structuredLogger.Info(format, args...)
+	} else {
+		s.logger.Printf(format, args...)
+	}
+}
+
+// logError logs an error message using structured logger if available, otherwise fallback
+func (s *MockLSPServer) logError(format string, args ...interface{}) {
+	if s.structuredLogger != nil {
+		s.structuredLogger.Error(format, args...)
+	} else {
+		s.logger.Printf("ERROR: "+format, args...)
+	}
+}
+
+// logDebug logs a debug message using structured logger if available, otherwise fallback
+func (s *MockLSPServer) logDebug(format string, args ...interface{}) {
+	if s.structuredLogger != nil {
+		s.structuredLogger.Debug(format, args...)
+	} else {
+		s.logger.Printf("DEBUG: "+format, args...)
+	}
+}
+
+// logWarning logs a warning message using structured logger if available, otherwise fallback
+func (s *MockLSPServer) logWarning(format string, args ...interface{}) {
+	if s.structuredLogger != nil {
+		s.structuredLogger.Warning(format, args...)
+	} else {
+		s.logger.Printf("WARNING: "+format, args...)
 	}
 }
 
@@ -54,12 +107,15 @@ func (s *MockLSPServer) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *js
 	case "exit":
 		s.handleExit(ctx, conn, req)
 	default:
-		// Send method not found error
-		if err := conn.ReplyWithError(ctx, req.ID, &jsonrpc2.Error{
-			Code:    jsonrpc2.CodeMethodNotFound,
-			Message: fmt.Sprintf("method not found: %s", req.Method),
-		}); err != nil {
-			log.Printf("Failed to send method not found error: %v", err)
+		// Create structured error for unsupported method
+		lspErr := NewMethodNotFoundError(req.Method)
+		if err := conn.ReplyWithError(ctx, req.ID, lspErr.ToJSONRPCError()); err != nil {
+			// Handle reply error with context
+			replyErr := s.errorHandler.WrapError(err, ErrorCodeInternalError, "Failed to send method not found error", map[string]interface{}{
+				"method": req.Method,
+				"request_id": req.ID,
+			})
+			s.errorHandler.HandleError(replyErr, "handle_unsupported_method")
 		}
 	}
 }
@@ -68,16 +124,16 @@ func (s *MockLSPServer) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *js
 func (s *MockLSPServer) handleInitialize(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) {
 	var params protocol.InitializeParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
-		if replyErr := conn.ReplyWithError(ctx, req.ID, &jsonrpc2.Error{
-			Code:    jsonrpc2.CodeInvalidParams,
-			Message: "failed to parse initialize params",
-		}); replyErr != nil {
-			log.Printf("Failed to send initialize error: %v", replyErr)
+		lspErr := NewInvalidParamsError("failed to parse initialize params", err)
+		lspErr.WithContext("method", "initialize")
+		if replyErr := conn.ReplyWithError(ctx, req.ID, lspErr.ToJSONRPCError()); replyErr != nil {
+			s.errorHandler.HandleError(replyErr, "initialize_send_error")
 		}
+		s.errorHandler.HandleError(lspErr, "initialize_parse_params")
 		return
 	}
 
-	log.Printf("Initialize request from client with root URI: %+v", params.RootUri)
+	s.logInfo("Initialize request from client with root URI: %+v", params.RootUri)
 
 	// textDocumentSyncChange := protocol.TextDocumentSyncKind(0)
 
@@ -106,25 +162,31 @@ func (s *MockLSPServer) handleInitialize(ctx context.Context, conn *jsonrpc2.Con
 	}
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
-		log.Printf("Failed to send initialize response: %v", err)
+		replyErr := s.errorHandler.WrapError(err, ErrorCodeInternalError, "Failed to send initialize response", map[string]interface{}{
+			"method": "initialize",
+			"request_id": req.ID,
+		})
+		s.errorHandler.HandleError(replyErr, "initialize_send_response")
 	}
 }
 
 // handleInitialized processes the initialized notification
 func (s *MockLSPServer) handleInitialized(_ context.Context, _ *jsonrpc2.Conn, _ *jsonrpc2.Request) {
-	log.Println("Client initialized")
+	s.logInfo("Client initialized")
 }
 
 // handleTextDocumentDidOpen processes textDocument/didOpen notifications
 func (s *MockLSPServer) handleTextDocumentDidOpen(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) {
 	var params protocol.DidOpenTextDocumentParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
-		log.Printf("Failed to parse didOpen params: %v", err)
+		lspErr := NewInvalidParamsError("failed to parse textDocument/didOpen params", err)
+		lspErr.WithContext("method", "textDocument/didOpen")
+		s.errorHandler.HandleError(lspErr, "didOpen_parse_params")
 		return
 	}
 
 	s.documents[string(params.TextDocument.Uri)] = &params.TextDocument
-	log.Printf("Opened document: %s", params.TextDocument.Uri)
+	s.logger.Printf("Opened document: %s", params.TextDocument.Uri)
 
 	// Send mock diagnostics
 	s.sendMockDiagnostics(ctx, conn, string(params.TextDocument.Uri))
@@ -134,7 +196,7 @@ func (s *MockLSPServer) handleTextDocumentDidOpen(ctx context.Context, conn *jso
 func (s *MockLSPServer) handleTextDocumentDidChange(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) {
 	var params protocol.DidChangeTextDocumentParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
-		log.Printf("Failed to parse didChange params: %v", err)
+		s.logger.Printf("Failed to parse didChange params: %v", err)
 		return
 	}
 
@@ -151,7 +213,7 @@ func (s *MockLSPServer) handleTextDocumentDidChange(ctx context.Context, conn *j
 			// Get the Value field from the Or2 struct
 			valueField := changeValue.FieldByName("Value")
 			if !valueField.IsValid() {
-				log.Printf("Or2 union type doesn't have Value field")
+				s.logger.Printf("Or2 union type doesn't have Value field")
 				continue
 			}
 
@@ -162,22 +224,22 @@ func (s *MockLSPServer) handleTextDocumentDidChange(ctx context.Context, conn *j
 			switch v := actualValue.(type) {
 			case protocol.TextDocumentContentChangePartial:
 				// Partial document change with range
-				log.Printf("Partial document update for %s at range %v", uri, v.Range)
-				log.Printf("Replacing text in range with: %q", v.Text)
+				s.logger.Printf("Partial document update for %s at range %v", uri, v.Range)
+				s.logger.Printf("Replacing text in range with: %q", v.Text)
 				// In a real implementation, apply the range-based change
 				// For this mock, we'll just note the change
 
 			case protocol.TextDocumentContentChangeWholeDocument:
 				// Whole document change
 				doc.Text = v.Text
-				log.Printf("Full document update for %s", uri)
+				s.logger.Printf("Full document update for %s", uri)
 
 			default:
-				log.Printf("Unknown content change type: %T", v)
+				s.logger.Printf("Unknown content change type: %T", v)
 			}
 		}
 
-		log.Printf("Document changed: %s (version %d)", uri, params.TextDocument.Version)
+		s.logger.Printf("Document changed: %s (version %d)", uri, params.TextDocument.Version)
 
 		// Send updated diagnostics after document change
 		s.sendMockDiagnostics(ctx, conn, uri)
@@ -188,23 +250,23 @@ func (s *MockLSPServer) handleTextDocumentDidChange(ctx context.Context, conn *j
 func (s *MockLSPServer) handleTextDocumentDidSave(_ context.Context, _ *jsonrpc2.Conn, req *jsonrpc2.Request) {
 	var params protocol.DidSaveTextDocumentParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
-		log.Printf("Failed to parse didSave params: %v", err)
+		s.logger.Printf("Failed to parse didSave params: %v", err)
 		return
 	}
 
-	log.Printf("Document saved: %s", params.TextDocument.Uri)
+	s.logger.Printf("Document saved: %s", params.TextDocument.Uri)
 }
 
 // handleTextDocumentDidClose processes textDocument/didClose notifications
 func (s *MockLSPServer) handleTextDocumentDidClose(_ context.Context, _ *jsonrpc2.Conn, req *jsonrpc2.Request) {
 	var params protocol.DidCloseTextDocumentParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
-		log.Printf("Failed to parse didClose params: %v", err)
+		s.logger.Printf("Failed to parse didClose params: %v", err)
 		return
 	}
 
 	delete(s.documents, string(params.TextDocument.Uri))
-	log.Printf("Closed document: %s", params.TextDocument.Uri)
+	s.logger.Printf("Closed document: %s", params.TextDocument.Uri)
 }
 
 // handleCompletion processes textDocument/completion requests
@@ -215,7 +277,7 @@ func (s *MockLSPServer) handleCompletion(ctx context.Context, conn *jsonrpc2.Con
 			Code:    jsonrpc2.CodeInvalidParams,
 			Message: "failed to parse completion params",
 		}); replyErr != nil {
-			log.Printf("Failed to send completion error: %v", replyErr)
+			s.logger.Printf("Failed to send completion error: %v", replyErr)
 		}
 		return
 	}
@@ -260,7 +322,7 @@ func (s *MockLSPServer) handleCompletion(ctx context.Context, conn *jsonrpc2.Con
 	}
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
-		log.Printf("Failed to send completion response: %v", err)
+		s.logger.Printf("Failed to send completion response: %v", err)
 	}
 }
 
@@ -272,7 +334,7 @@ func (s *MockLSPServer) handleHover(ctx context.Context, conn *jsonrpc2.Conn, re
 			Code:    jsonrpc2.CodeInvalidParams,
 			Message: "failed to parse hover params",
 		}); replyErr != nil {
-			log.Printf("Failed to send hover error: %v", replyErr)
+			s.logger.Printf("Failed to send hover error: %v", replyErr)
 		}
 		return
 	}
@@ -295,7 +357,7 @@ func (s *MockLSPServer) handleHover(ctx context.Context, conn *jsonrpc2.Conn, re
 	}
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
-		log.Printf("Failed to send hover response: %v", err)
+		s.logger.Printf("Failed to send hover response: %v", err)
 	}
 }
 
@@ -307,7 +369,7 @@ func (s *MockLSPServer) handleDefinition(ctx context.Context, conn *jsonrpc2.Con
 			Code:    jsonrpc2.CodeInvalidParams,
 			Message: "failed to parse definition params",
 		}); replyErr != nil {
-			log.Printf("Failed to send definition error: %v", replyErr)
+			s.logger.Printf("Failed to send definition error: %v", replyErr)
 		}
 		return
 	}
@@ -324,7 +386,7 @@ func (s *MockLSPServer) handleDefinition(ctx context.Context, conn *jsonrpc2.Con
 	}
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
-		log.Printf("Failed to send definition response: %v", err)
+		s.logger.Printf("Failed to send definition response: %v", err)
 	}
 }
 
@@ -336,7 +398,7 @@ func (s *MockLSPServer) handleReferences(ctx context.Context, conn *jsonrpc2.Con
 			Code:    jsonrpc2.CodeInvalidParams,
 			Message: "failed to parse references params",
 		}); replyErr != nil {
-			log.Printf("Failed to send references error: %v", replyErr)
+			s.logger.Printf("Failed to send references error: %v", replyErr)
 		}
 		return
 	}
@@ -360,7 +422,7 @@ func (s *MockLSPServer) handleReferences(ctx context.Context, conn *jsonrpc2.Con
 	}
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
-		log.Printf("Failed to send references response: %v", err)
+		s.logger.Printf("Failed to send references response: %v", err)
 	}
 }
 
@@ -372,7 +434,7 @@ func (s *MockLSPServer) handleDocumentSymbol(ctx context.Context, conn *jsonrpc2
 			Code:    jsonrpc2.CodeInvalidParams,
 			Message: "failed to parse document symbol params",
 		}); replyErr != nil {
-			log.Printf("Failed to send document symbol error: %v", replyErr)
+			s.logger.Printf("Failed to send document symbol error: %v", replyErr)
 		}
 		return
 	}
@@ -409,21 +471,21 @@ func (s *MockLSPServer) handleDocumentSymbol(ctx context.Context, conn *jsonrpc2
 	}
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
-		log.Printf("Failed to send document symbol response: %v", err)
+		s.logger.Printf("Failed to send document symbol response: %v", err)
 	}
 }
 
 // handleShutdown processes shutdown requests
 func (s *MockLSPServer) handleShutdown(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) {
-	log.Println("Shutdown request received")
+	s.logger.Println("Shutdown request received")
 	if err := conn.Reply(ctx, req.ID, nil); err != nil {
-		log.Printf("Failed to send shutdown response: %v", err)
+		s.logger.Printf("Failed to send shutdown response: %v", err)
 	}
 }
 
 // handleExit processes exit notifications
 func (s *MockLSPServer) handleExit(_ context.Context, _ *jsonrpc2.Conn, _ *jsonrpc2.Request) {
-	log.Println("Exit notification received")
+	s.logger.Println("Exit notification received")
 	os.Exit(0)
 }
 
@@ -459,6 +521,6 @@ func (s *MockLSPServer) sendMockDiagnostics(ctx context.Context, conn *jsonrpc2.
 	}
 
 	if err := conn.Notify(ctx, "textDocument/publishDiagnostics", params); err != nil {
-		log.Printf("Failed to send diagnostics notification: %v", err)
+		s.logger.Printf("Failed to send diagnostics notification: %v", err)
 	}
 }
