@@ -23,13 +23,13 @@ const (
 	ErrorCodeUnknownErrorCode     LSPErrorCode = -32001
 
 	// Custom application error codes
-	ErrorCodeDocumentNotFound    LSPErrorCode = -32100
-	ErrorCodeInvalidDocument     LSPErrorCode = -32101
-	ErrorCodeDocumentSyncFailed  LSPErrorCode = -32102
-	ErrorCodeCompletionFailed    LSPErrorCode = -32103
-	ErrorCodeHoverFailed         LSPErrorCode = -32104
-	ErrorCodeDefinitionFailed    LSPErrorCode = -32105
-	ErrorCodeReferencesFailed    LSPErrorCode = -32106
+	ErrorCodeDocumentNotFound     LSPErrorCode = -32100
+	ErrorCodeInvalidDocument      LSPErrorCode = -32101
+	ErrorCodeDocumentSyncFailed   LSPErrorCode = -32102
+	ErrorCodeCompletionFailed     LSPErrorCode = -32103
+	ErrorCodeHoverFailed          LSPErrorCode = -32104
+	ErrorCodeDefinitionFailed     LSPErrorCode = -32105
+	ErrorCodeReferencesFailed     LSPErrorCode = -32106
 	ErrorCodeDocumentSymbolFailed LSPErrorCode = -32107
 )
 
@@ -98,7 +98,7 @@ func (e *LSPError) formatContext() string {
 	if len(e.Context) == 0 {
 		return ""
 	}
-	
+
 	contextStr := ""
 	for k, v := range e.Context {
 		if contextStr != "" {

@@ -125,7 +125,7 @@ func TestValidationErrors(t *testing.T) {
 	singleError := ValidationErrors{
 		{Field: "test", Value: "value", Message: "test message"},
 	}
-	
+
 	errorStr := singleError.Error()
 	if !strings.Contains(errorStr, "test") || !strings.Contains(errorStr, "test message") {
 		t.Errorf("Single error string doesn't contain expected content: %s", errorStr)
@@ -137,7 +137,7 @@ func TestValidationErrors(t *testing.T) {
 		{Field: "field2", Value: "value2", Message: "message2"},
 		{Field: "field3", Value: "value3", Message: "message3"},
 	}
-	
+
 	multiErrorStr := multipleErrors.Error()
 	if !strings.Contains(multiErrorStr, "3 validation errors") {
 		t.Errorf("Multiple errors string doesn't indicate count: %s", multiErrorStr)

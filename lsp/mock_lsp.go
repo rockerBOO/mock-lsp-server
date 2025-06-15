@@ -14,10 +14,10 @@ import (
 
 // MockLSPServer implements the LSP server handlers
 type MockLSPServer struct {
-	documents       map[string]*protocol.TextDocumentItem
-	logger          *log.Logger
+	documents        map[string]*protocol.TextDocumentItem
+	logger           *log.Logger
 	structuredLogger *logging.StructuredLogger
-	errorHandler    *ErrorHandler
+	errorHandler     *ErrorHandler
 }
 
 // NewMockLSPServer creates a new mock LSP server instance
@@ -112,7 +112,7 @@ func (s *MockLSPServer) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *js
 		if err := conn.ReplyWithError(ctx, req.ID, lspErr.ToJSONRPCError()); err != nil {
 			// Handle reply error with context
 			replyErr := s.errorHandler.WrapError(err, ErrorCodeInternalError, "Failed to send method not found error", map[string]interface{}{
-				"method": req.Method,
+				"method":     req.Method,
 				"request_id": req.ID,
 			})
 			s.errorHandler.HandleError(replyErr, "handle_unsupported_method")
@@ -163,7 +163,7 @@ func (s *MockLSPServer) handleInitialize(ctx context.Context, conn *jsonrpc2.Con
 
 	if err := conn.Reply(ctx, req.ID, result); err != nil {
 		replyErr := s.errorHandler.WrapError(err, ErrorCodeInternalError, "Failed to send initialize response", map[string]interface{}{
-			"method": "initialize",
+			"method":     "initialize",
 			"request_id": req.ID,
 		})
 		s.errorHandler.HandleError(replyErr, "initialize_send_response")

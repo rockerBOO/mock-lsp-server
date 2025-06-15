@@ -459,19 +459,19 @@ func TestDiagnosticCreation(t *testing.T) {
 func TestSupportedMethods(t *testing.T) {
 	// List of all supported LSP methods
 	supportedMethods := map[string]bool{
-		"initialize":                    true,
-		"initialized":                   true,
-		"textDocument/didOpen":          true,
-		"textDocument/didChange":        true,
-		"textDocument/didSave":          true,
-		"textDocument/didClose":         true,
-		"textDocument/completion":       true,
-		"textDocument/hover":            true,
-		"textDocument/definition":       true,
-		"textDocument/references":       true,
-		"textDocument/documentSymbol":   true,
-		"shutdown":                      true,
-		"exit":                          true,
+		"initialize":                  true,
+		"initialized":                 true,
+		"textDocument/didOpen":        true,
+		"textDocument/didChange":      true,
+		"textDocument/didSave":        true,
+		"textDocument/didClose":       true,
+		"textDocument/completion":     true,
+		"textDocument/hover":          true,
+		"textDocument/definition":     true,
+		"textDocument/references":     true,
+		"textDocument/documentSymbol": true,
+		"shutdown":                    true,
+		"exit":                        true,
 	}
 
 	// Test that all expected methods are supported

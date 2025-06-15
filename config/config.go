@@ -40,14 +40,14 @@ type LoggingConfig struct {
 
 // LSPConfig represents LSP-specific configuration
 type LSPConfig struct {
-	InitializeTimeout Duration            `json:"initialize_timeout" validate:"min=1s,max=60s"`
-	CompletionConfig  CompletionConfig    `json:"completion" validate:"required"`
-	HoverConfig       HoverConfig         `json:"hover" validate:"required"`
-	DiagnosticsConfig DiagnosticsConfig   `json:"diagnostics" validate:"required"`
-	MockData          MockDataConfig      `json:"mock_data" validate:"required"`
-	Features          map[string]bool     `json:"features"`
-	TriggerCharacters []string            `json:"trigger_characters" validate:"max=20"`
-	Extensions        []string            `json:"extensions" validate:"dive,min=1,max=10"`
+	InitializeTimeout Duration          `json:"initialize_timeout" validate:"min=1s,max=60s"`
+	CompletionConfig  CompletionConfig  `json:"completion" validate:"required"`
+	HoverConfig       HoverConfig       `json:"hover" validate:"required"`
+	DiagnosticsConfig DiagnosticsConfig `json:"diagnostics" validate:"required"`
+	MockData          MockDataConfig    `json:"mock_data" validate:"required"`
+	Features          map[string]bool   `json:"features"`
+	TriggerCharacters []string          `json:"trigger_characters" validate:"max=20"`
+	Extensions        []string          `json:"extensions" validate:"dive,min=1,max=10"`
 }
 
 // CompletionConfig configures completion behavior
@@ -59,7 +59,7 @@ type CompletionConfig struct {
 	IncludeSnippets   bool     `json:"include_snippets"`
 }
 
-// HoverConfig configures hover behavior  
+// HoverConfig configures hover behavior
 type HoverConfig struct {
 	Enabled     bool `json:"enabled"`
 	ShowTypes   bool `json:"show_types"`
@@ -114,12 +114,12 @@ func (d *Duration) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	
+
 	duration, err := time.ParseDuration(s)
 	if err != nil {
 		return err
 	}
-	
+
 	*d = Duration(duration)
 	return nil
 }
@@ -202,7 +202,7 @@ func DefaultConfig() *ServerConfig {
 				Languages:      []string{"go", "typescript", "python"},
 			},
 			Features: map[string]bool{
-				"completion":       true,
+				"completion":      true,
 				"hover":           true,
 				"definition":      true,
 				"references":      true,
@@ -236,7 +236,7 @@ func LoadFromFile(path string) (*ServerConfig, error) {
 // LoadFromFileWithDefaults loads config from file, falling back to defaults for missing fields
 func LoadFromFileWithDefaults(path string) (*ServerConfig, error) {
 	defaultConfig := DefaultConfig()
-	
+
 	if path == "" {
 		return defaultConfig, nil
 	}

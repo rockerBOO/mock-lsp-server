@@ -2,8 +2,8 @@ package main
 
 import (
 	"os"
-	"testing"
 	"reflect"
+	"testing"
 )
 
 // Test for the version that returns the manager too
@@ -205,7 +205,7 @@ func Test_loadConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := loadConfig(tt.progname, tt.args)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("loadConfig() expected error, got nil")
@@ -215,17 +215,17 @@ func Test_loadConfig(t *testing.T) {
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("loadConfig() unexpected error: %v", err)
 				return
 			}
-			
+
 			if got == nil {
 				t.Error("loadConfig() returned nil without error")
 				return
 			}
-			
+
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("loadConfig() = %+v, want %+v", got, tt.want)
 			}
@@ -236,8 +236,8 @@ func Test_loadConfig(t *testing.T) {
 // Test individual field parsing
 func Test_loadConfig_FieldValidation(t *testing.T) {
 	testCases := []struct {
-		name string
-		args []string
+		name    string
+		args    []string
 		checkFn func(*testing.T, *MockLSPServerConfig)
 	}{
 		{
@@ -297,17 +297,17 @@ func Test_loadConfig_FieldValidation(t *testing.T) {
 // Test concurrent usage (since each call creates a new FlagSet)
 func Test_loadConfig_Concurrent(t *testing.T) {
 	t.Parallel() // This is safe now because we don't use global state
-	
+
 	config1, err1 := loadConfig("prog1", []string{"-appName", "app1"})
 	config2, err2 := loadConfig("prog2", []string{"-appName", "app2"})
-	
+
 	if err1 != nil {
 		t.Errorf("First loadConfig() failed: %v", err1)
 	}
 	if err2 != nil {
 		t.Errorf("Second loadConfig() failed: %v", err2)
 	}
-	
+
 	if config1.AppName != "app1" {
 		t.Errorf("Expected first config AppName 'app1', got '%s'", config1.AppName)
 	}
@@ -319,7 +319,7 @@ func Test_loadConfig_Concurrent(t *testing.T) {
 // Benchmark to ensure performance is reasonable
 func Benchmark_loadConfig(b *testing.B) {
 	args := []string{"-appName", "benchmark-app", "-log_dir", "/tmp", "-config", "config.json", "-info"}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := loadConfig("benchmark-prog", args)
