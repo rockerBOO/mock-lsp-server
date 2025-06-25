@@ -23,6 +23,16 @@ jobs:
       - name: Build binaries for all platforms
         run: make build-all
 
+      - name: Archive binaries
+        run: |
+          cd dist
+          tar -czvf mock-lsp-server-linux-amd64.tar.gz mock-lsp-server-linux-amd64
+          tar -czvf mock-lsp-server-linux-arm64.tar.gz mock-lsp-server-linux-arm64
+          tar -czvf mock-lsp-server-darwin-amd64.tar.gz mock-lsp-server-darwin-amd64
+          tar -czvf mock-lsp-server-darwin-arm64.tar.gz mock-lsp-server-darwin-arm64
+          zip -r mock-lsp-server-windows-amd64.zip mock-lsp-server-windows-amd64.exe
+          zip -r mock-lsp-server-windows-arm64.zip mock-lsp-server-windows-arm64.exe
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
@@ -32,7 +42,7 @@ jobs:
           # Whether to automatically associate assets with the release.
           prerelease: false
           # Files to upload. The paths are relative to the root of the repository.
-          files: dist/*/*.tar.gz, dist/*.exe, dist/*.zip
+          files: dist/*.tar.gz, dist/*.zip, dist/*.exe
 
   create-release-notes:
     runs-on: ubuntu-latest
