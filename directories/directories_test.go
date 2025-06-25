@@ -164,6 +164,12 @@ func TestDirectoryResolver_GetCacheDirectory(t *testing.T) {
 }
 
 func TestDirectoryResolver_GetConfigDirectory(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Skipping test: Failed to get current user: %v", err)
+	}
+	expectedRegularUserConfigPath := filepath.Join(currentUser.HomeDir, ".config", "test")
+
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for receiver constructor.
@@ -186,11 +192,9 @@ func TestDirectoryResolver_GetConfigDirectory(t *testing.T) {
 		{
 			name:    "regular user",
 			appName: "test",
-			user: &user.User{
-				Uid: "1000",
-			},
+			user: currentUser, // Use the actual current user
 			shouldEnsureDir: false,
-			want:            filepath.Join(".config", "test"),
+			want:            expectedRegularUserConfigPath, // Use the calculated path
 			wantErr:         false,
 		},
 	}

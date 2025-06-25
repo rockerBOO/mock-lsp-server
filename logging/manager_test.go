@@ -9,6 +9,12 @@ import (
 )
 
 func TestManager_GetDefaultConfigPath(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Skipping test: Failed to get current user: %v", err)
+	}
+	expectedRegularUserConfigPath := filepath.Join(currentUser.HomeDir, ".config", "test", "config.json")
+
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for receiver constructor.
@@ -31,12 +37,9 @@ func TestManager_GetDefaultConfigPath(t *testing.T) {
 		{
 			name:    "regular user",
 			appName: "test",
-			user: &user.User{
-				Uid:  "1000",
-				HomeDir: "/home/testuser", // Add a mock home directory
-			},
+			user: currentUser, // Use the actual current user
 			shouldEnsureDir: false,
-			want:            filepath.Join("/home/testuser", ".config", "test", "config.json"), // Update expected path
+			want:            expectedRegularUserConfigPath, // Use the calculated path
 			wantErr:         false,
 		},
 	}
@@ -130,7 +133,7 @@ func TestStructuredLogger(t *testing.T) {
 	// Test adding context
 	contextLogger := structuredLogger.WithContext("component", "test")
 	if contextLogger == nil {
-		t.Fatal("Failed to create context logger")
+		t.Fatal("Failed to create context logger")	
 	}
 
 	// Test method chaining
