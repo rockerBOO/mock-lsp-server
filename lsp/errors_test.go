@@ -1,8 +1,13 @@
 package lsp
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/sourcegraph/jsonrpc2"
 )
 
 func TestLSPErrorCode_String(t *testing.T) {
@@ -15,8 +20,16 @@ func TestLSPErrorCode_String(t *testing.T) {
 		{ErrorCodeMethodNotFound, "MethodNotFound"},
 		{ErrorCodeInvalidParams, "InvalidParams"},
 		{ErrorCodeInternalError, "InternalError"},
+		{ErrorCodeServerNotInitialized, "ServerNotInitialized"},
+		{ErrorCodeUnknownErrorCode, "UnknownErrorCode"},
 		{ErrorCodeDocumentNotFound, "DocumentNotFound"},
 		{ErrorCodeInvalidDocument, "InvalidDocument"},
+		{ErrorCodeDocumentSyncFailed, "DocumentSyncFailed"},
+		{ErrorCodeCompletionFailed, "CompletionFailed"},
+		{ErrorCodeHoverFailed, "HoverFailed"},
+		{ErrorCodeDefinitionFailed, "DefinitionFailed"},
+		{ErrorCodeReferencesFailed, "ReferencesFailed"},
+		{ErrorCodeDocumentSymbolFailed, "DocumentSymbolFailed"},
 		{LSPErrorCode(9999), "UnknownError"}, // Unknown code
 	}
 
@@ -261,5 +274,82 @@ func TestLSPError_formatContext(t *testing.T) {
 	// Should be different from single context
 	if multiContextStr == contextStr {
 		t.Error("Multi-context should be different from single context")
+	}
+}
+
+// Test custom error scenarios for LSP method error cases
+func TestLSPMethodErrorScenarios(t *testing.T) {
+	testCases := []struct {
+		name      string
+		errorFn   func() *LSPError
+		validator func(*testing.T, *LSPError)
+	}{
+		{
+			name: "Completion Error with Detailed Context",
+			errorFn: func() *LSPError {
+				return NewLSPError(ErrorCodeCompletionFailed, "failed to generate completions").
+					WithContext("trigger_chars", []string{".", ":"}).
+					WithContext("line", 10).
+					WithContext("character", 5)
+			},
+			validator: func(t *testing.T, err *LSPError) {
+				if err.Code != ErrorCodeCompletionFailed {
+					t.Errorf("Expected completion failed error code, got %v", err.Code)
+				}
+				if err.Context["line"] != 10 {
+					t.Errorf("Expected line context 10, got %v", err.Context["line"])
+				}
+				if err.Context["character"] != 5 {
+					t.Errorf("Expected character context 5, got %v", err.Context["character"])
+				}
+			},
+		},
+		{
+			name: "Document Sync Error with Error Origin",
+			errorFn: func() *LSPError {
+				return NewLSPErrorWithCause(
+					ErrorCodeDocumentSyncFailed, 
+					"failed to synchronize document", 
+					errors.New("filesystem write permission denied"),
+				).
+					WithContext("uri", "file:///test.go").
+					WithContext("version", 2)
+			},
+			validator: func(t *testing.T, err *LSPError) {
+				if err.Code != ErrorCodeDocumentSyncFailed {
+					t.Errorf("Expected document sync failed error code, got %v", err.Code)
+				}
+				if err.Context["uri"] != "file:///test.go" {
+					t.Errorf("Expected uri context, got %v", err.Context["uri"])
+				}
+				if err.Cause.Error() != "filesystem write permission denied" {
+					t.Errorf("Unexpected cause: %v", err.Cause)
+				}
+			},
+		},
+		{
+			name: "Hover Information Retrieval Error",
+			errorFn: func() *LSPError {
+				return NewLSPError(ErrorCodeHoverFailed, "failed to retrieve hover information").
+					WithContext("language", "go").
+					WithContext("line", 15).
+					WithContext("character", 20)
+			},
+			validator: func(t *testing.T, err *LSPError) {
+				if err.Code != ErrorCodeHoverFailed {
+					t.Errorf("Expected hover failed error code, got %v", err.Code)
+				}
+				if err.Context["language"] != "go" {
+					t.Errorf("Expected language context 'go', got %v", err.Context["language"])
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.errorFn()
+			tc.validator(t, err)
+		})
 	}
 }

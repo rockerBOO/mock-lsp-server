@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -279,19 +280,17 @@ func (c *ServerConfig) SaveToFile(path string) error {
 func (c *ServerConfig) Validate() error {
 	var errors ValidationErrors
 
-	// Validate AppName
-	if c.AppName == "" {
-		errors = append(errors, ValidationError{
-			Field:   "app_name",
-			Value:   c.AppName,
-			Message: "app name is required",
-		})
-	} else if len(c.AppName) > 100 {
-		errors = append(errors, ValidationError{
-			Field:   "app_name",
-			Value:   c.AppName,
-			Message: "app name must be less than 100 characters",
-		})
+	// Validate AppName with enhanced rules
+	if err := c.validateAppName(); err != nil {
+		if ve, ok := err.(ValidationErrors); ok {
+			errors = append(errors, ve...)
+		} else {
+			errors = append(errors, ValidationError{
+				Field:   "app_name",
+				Value:   c.AppName,
+				Message: err.Error(),
+			})
+		}
 	}
 
 	// Validate Server settings
@@ -340,39 +339,129 @@ func (c *ServerConfig) Validate() error {
 	return nil
 }
 
-// validateServer validates server configuration
+// validateAppName validates application name with enhanced rules
+func (c *ServerConfig) validateAppName() error {
+	var errors ValidationErrors
+
+	if c.AppName == "" {
+		errors = append(errors, ValidationError{
+			Field:   "app_name",
+			Value:   c.AppName,
+			Message: "app name is required",
+		})
+	} else {
+		// Length validation
+		if len(c.AppName) > 100 {
+			errors = append(errors, ValidationError{
+				Field:   "app_name",
+				Value:   c.AppName,
+				Message: "app name must be less than 100 characters",
+			})
+		}
+
+		// Pattern validation - only allow alphanumeric, hyphens, underscores
+		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, c.AppName); !matched {
+			errors = append(errors, ValidationError{
+				Field:   "app_name",
+				Value:   c.AppName,
+				Message: "app name can only contain letters, numbers, hyphens, and underscores",
+			})
+		}
+
+		// Reserved names validation
+		reservedNames := []string{"system", "admin", "root", "api", "config", "log", "logs"}
+		for _, reserved := range reservedNames {
+			if strings.ToLower(c.AppName) == reserved {
+				errors = append(errors, ValidationError{
+					Field:   "app_name",
+					Value:   c.AppName,
+					Message: fmt.Sprintf("app name '%s' is reserved and cannot be used", reserved),
+				})
+				break
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return errors
+	}
+	return nil
+}
+
+// validateServer validates server configuration with enhanced rules
 func (c *ServerConfig) validateServer() error {
 	var errors ValidationErrors
 
+	// Name validation
 	if c.Server.Name == "" {
 		errors = append(errors, ValidationError{
 			Field:   "server.name",
 			Value:   c.Server.Name,
 			Message: "server name is required",
 		})
+	} else if len(c.Server.Name) > 100 {
+		errors = append(errors, ValidationError{
+			Field:   "server.name",
+			Value:   c.Server.Name,
+			Message: "server name must be less than 100 characters",
+		})
 	}
 
+	// Version validation (enhanced semver-like validation)
 	if c.Server.Version == "" {
 		errors = append(errors, ValidationError{
 			Field:   "server.version",
 			Value:   c.Server.Version,
 			Message: "server version is required",
 		})
+	} else {
+		// Basic semver pattern validation
+		semverPattern := `^(\d+)\.(\d+)\.(\d+)(-[a-zA-Z0-9-]+)?(\+[a-zA-Z0-9-]+)?$`
+		if matched, _ := regexp.MatchString(semverPattern, c.Server.Version); !matched {
+			errors = append(errors, ValidationError{
+				Field:   "server.version",
+				Value:   c.Server.Version,
+				Message: "server version must follow semantic versioning format (e.g., 1.0.0)",
+			})
+		}
 	}
 
+	// Description validation
+	if len(c.Server.Description) > 500 {
+		errors = append(errors, ValidationError{
+			Field:   "server.description",
+			Value:   c.Server.Description,
+			Message: "server description must be less than 500 characters",
+		})
+	}
+
+	// Timeout validation
 	if c.Server.Timeout.Duration() < time.Second {
 		errors = append(errors, ValidationError{
 			Field:   "server.timeout",
 			Value:   c.Server.Timeout.String(),
 			Message: "timeout must be at least 1 second",
 		})
+	} else if c.Server.Timeout.Duration() > 5*time.Minute {
+		errors = append(errors, ValidationError{
+			Field:   "server.timeout",
+			Value:   c.Server.Timeout.String(),
+			Message: "timeout must be less than 5 minutes",
+		})
 	}
 
+	// MaxRequests validation
 	if c.Server.MaxRequests < 1 {
 		errors = append(errors, ValidationError{
 			Field:   "server.max_requests",
 			Value:   fmt.Sprintf("%d", c.Server.MaxRequests),
 			Message: "max_requests must be at least 1",
+		})
+	} else if c.Server.MaxRequests > 100000 {
+		errors = append(errors, ValidationError{
+			Field:   "server.max_requests",
+			Value:   fmt.Sprintf("%d", c.Server.MaxRequests),
+			Message: "max_requests must be less than 100,000",
 		})
 	}
 
@@ -382,10 +471,11 @@ func (c *ServerConfig) validateServer() error {
 	return nil
 }
 
-// validateLogging validates logging configuration
+// validateLogging validates logging configuration with enhanced rules
 func (c *ServerConfig) validateLogging() error {
 	var errors ValidationErrors
 
+	// Level validation
 	validLevels := []string{"debug", "info", "warning", "error"}
 	levelValid := false
 	for _, level := range validLevels {
@@ -403,14 +493,87 @@ func (c *ServerConfig) validateLogging() error {
 		})
 	}
 
+	// Directory validation (if specified)
+	if c.Logging.Directory != "" {
+		if !filepath.IsAbs(c.Logging.Directory) {
+			errors = append(errors, ValidationError{
+				Field:   "logging.directory",
+				Value:   c.Logging.Directory,
+				Message: "directory must be an absolute path",
+			})
+		}
+	}
+
+	// FileName validation
+	if c.Logging.FileName != "" {
+		if len(c.Logging.FileName) > 255 {
+			errors = append(errors, ValidationError{
+				Field:   "logging.file_name",
+				Value:   c.Logging.FileName,
+				Message: "file name must be less than 255 characters",
+			})
+		}
+		
+		// Check for invalid file name characters
+		invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+		for _, char := range invalidChars {
+			if strings.Contains(c.Logging.FileName, char) {
+				errors = append(errors, ValidationError{
+					Field:   "logging.file_name",
+					Value:   c.Logging.FileName,
+					Message: fmt.Sprintf("file name contains invalid character '%s'", char),
+				})
+				break
+			}
+		}
+	}
+
+	// MaxSize validation
 	if c.Logging.MaxSize < 1 {
 		errors = append(errors, ValidationError{
 			Field:   "logging.max_size_mb",
 			Value:   fmt.Sprintf("%d", c.Logging.MaxSize),
 			Message: "max_size_mb must be at least 1",
 		})
+	} else if c.Logging.MaxSize > 10000 {
+		errors = append(errors, ValidationError{
+			Field:   "logging.max_size_mb",
+			Value:   fmt.Sprintf("%d", c.Logging.MaxSize),
+			Message: "max_size_mb must be less than 10,000 MB",
+		})
 	}
 
+	// MaxBackups validation
+	if c.Logging.MaxBackups < 0 {
+		errors = append(errors, ValidationError{
+			Field:   "logging.max_backups",
+			Value:   fmt.Sprintf("%d", c.Logging.MaxBackups),
+			Message: "max_backups must be non-negative",
+		})
+	} else if c.Logging.MaxBackups > 1000 {
+		errors = append(errors, ValidationError{
+			Field:   "logging.max_backups",
+			Value:   fmt.Sprintf("%d", c.Logging.MaxBackups),
+			Message: "max_backups must be less than 1,000",
+		})
+	}
+
+	// MaxAge validation
+	if c.Logging.MaxAge < 0 {
+		errors = append(errors, ValidationError{
+			Field:   "logging.max_age_days",
+			Value:   fmt.Sprintf("%d", c.Logging.MaxAge),
+			Message: "max_age_days must be non-negative",
+		})
+	} else if c.Logging.MaxAge > 3650 {
+		errors = append(errors, ValidationError{
+			Field:   "logging.max_age_days",
+			Value:   fmt.Sprintf("%d", c.Logging.MaxAge),
+			Message: "max_age_days must be less than 10 years (3,650 days)",
+		})
+	}
+
+	// Format validation
 	if c.Logging.Format != "" && c.Logging.Format != "text" && c.Logging.Format != "json" {
 		errors = append(errors, ValidationError{
 			Field:   "logging.format",
@@ -425,17 +588,97 @@ func (c *ServerConfig) validateLogging() error {
 	return nil
 }
 
-// validateLSP validates LSP configuration
+// validateLSP validates LSP configuration with enhanced rules
 func (c *ServerConfig) validateLSP() error {
 	var errors ValidationErrors
 
+	// InitializeTimeout validation
 	if c.LSP.InitializeTimeout.Duration() < time.Second {
 		errors = append(errors, ValidationError{
 			Field:   "lsp.initialize_timeout",
 			Value:   c.LSP.InitializeTimeout.String(),
 			Message: "initialize_timeout must be at least 1 second",
 		})
+	} else if c.LSP.InitializeTimeout.Duration() > time.Minute {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.initialize_timeout",
+			Value:   c.LSP.InitializeTimeout.String(),
+			Message: "initialize_timeout must be less than 1 minute",
+		})
 	}
+
+	// Validate completion config
+	if err := c.validateCompletionConfig(); err != nil {
+		if ve, ok := err.(ValidationErrors); ok {
+			errors = append(errors, ve...)
+		}
+	}
+
+	// Validate hover config
+	if err := c.validateHoverConfig(); err != nil {
+		if ve, ok := err.(ValidationErrors); ok {
+			errors = append(errors, ve...)
+		}
+	}
+
+	// Validate diagnostics config
+	if err := c.validateDiagnosticsConfig(); err != nil {
+		if ve, ok := err.(ValidationErrors); ok {
+			errors = append(errors, ve...)
+		}
+	}
+
+	// Validate mock data config
+	if err := c.validateMockDataConfig(); err != nil {
+		if ve, ok := err.(ValidationErrors); ok {
+			errors = append(errors, ve...)
+		}
+	}
+
+	// Validate trigger characters
+	if len(c.LSP.TriggerCharacters) > 20 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.trigger_characters",
+			Value:   fmt.Sprintf("%v", c.LSP.TriggerCharacters),
+			Message: "trigger_characters list cannot exceed 20 items",
+		})
+	}
+
+	// Validate extensions
+	if len(c.LSP.Extensions) > 50 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.extensions",
+			Value:   fmt.Sprintf("%v", c.LSP.Extensions),
+			Message: "extensions list cannot exceed 50 items",
+		})
+	}
+
+	for i, ext := range c.LSP.Extensions {
+		if !strings.HasPrefix(ext, ".") {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.extensions[%d]", i),
+				Value:   ext,
+				Message: "extension must start with a dot (e.g., '.go')",
+			})
+		}
+		if len(ext) > 10 {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.extensions[%d]", i),
+				Value:   ext,
+				Message: "extension must be less than 10 characters",
+			})
+		}
+	}
+
+	if len(errors) > 0 {
+		return errors
+	}
+	return nil
+}
+
+// validateCompletionConfig validates completion configuration
+func (c *ServerConfig) validateCompletionConfig() error {
+	var errors ValidationErrors
 
 	if c.LSP.CompletionConfig.MaxItems < 1 {
 		errors = append(errors, ValidationError{
@@ -443,7 +686,31 @@ func (c *ServerConfig) validateLSP() error {
 			Value:   fmt.Sprintf("%d", c.LSP.CompletionConfig.MaxItems),
 			Message: "completion max_items must be at least 1",
 		})
+	} else if c.LSP.CompletionConfig.MaxItems > 10000 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.completion.max_items",
+			Value:   fmt.Sprintf("%d", c.LSP.CompletionConfig.MaxItems),
+			Message: "completion max_items must be less than 10,000",
+		})
 	}
+
+	if len(c.LSP.CompletionConfig.TriggerCharacters) > 10 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.completion.trigger_characters",
+			Value:   fmt.Sprintf("%v", c.LSP.CompletionConfig.TriggerCharacters),
+			Message: "completion trigger_characters list cannot exceed 10 items",
+		})
+	}
+
+	if len(errors) > 0 {
+		return errors
+	}
+	return nil
+}
+
+// validateHoverConfig validates hover configuration
+func (c *ServerConfig) validateHoverConfig() error {
+	var errors ValidationErrors
 
 	if c.LSP.HoverConfig.MaxLength < 100 {
 		errors = append(errors, ValidationError{
@@ -451,6 +718,137 @@ func (c *ServerConfig) validateLSP() error {
 			Value:   fmt.Sprintf("%d", c.LSP.HoverConfig.MaxLength),
 			Message: "hover max_length must be at least 100",
 		})
+	} else if c.LSP.HoverConfig.MaxLength > 100000 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.hover.max_length",
+			Value:   fmt.Sprintf("%d", c.LSP.HoverConfig.MaxLength),
+			Message: "hover max_length must be less than 100,000",
+		})
+	}
+
+	if len(errors) > 0 {
+		return errors
+	}
+	return nil
+}
+
+// validateDiagnosticsConfig validates diagnostics configuration
+func (c *ServerConfig) validateDiagnosticsConfig() error {
+	var errors ValidationErrors
+
+	if c.LSP.DiagnosticsConfig.MaxIssues < 1 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.diagnostics.max_issues",
+			Value:   fmt.Sprintf("%d", c.LSP.DiagnosticsConfig.MaxIssues),
+			Message: "diagnostics max_issues must be at least 1",
+		})
+	} else if c.LSP.DiagnosticsConfig.MaxIssues > 10000 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.diagnostics.max_issues",
+			Value:   fmt.Sprintf("%d", c.LSP.DiagnosticsConfig.MaxIssues),
+			Message: "diagnostics max_issues must be less than 10,000",
+		})
+	}
+
+	if c.LSP.DiagnosticsConfig.UpdateDelay.Duration() < 50*time.Millisecond {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.diagnostics.update_delay",
+			Value:   c.LSP.DiagnosticsConfig.UpdateDelay.String(),
+			Message: "diagnostics update_delay must be at least 50ms",
+		})
+	} else if c.LSP.DiagnosticsConfig.UpdateDelay.Duration() > 30*time.Second {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.diagnostics.update_delay",
+			Value:   c.LSP.DiagnosticsConfig.UpdateDelay.String(),
+			Message: "diagnostics update_delay must be less than 30 seconds",
+		})
+	}
+
+	// Validate severities
+	validSeverities := []string{"error", "warning", "info", "hint"}
+	for i, severity := range c.LSP.DiagnosticsConfig.Severities {
+		valid := false
+		for _, validSeverity := range validSeverities {
+			if severity == validSeverity {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.diagnostics.severities[%d]", i),
+				Value:   severity,
+				Message: "severity must be one of: error, warning, info, hint",
+			})
+		}
+	}
+
+	if len(errors) > 0 {
+		return errors
+	}
+	return nil
+}
+
+// validateMockDataConfig validates mock data configuration
+func (c *ServerConfig) validateMockDataConfig() error {
+	var errors ValidationErrors
+
+	if c.LSP.MockData.ItemCount < 1 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.mock_data.item_count",
+			Value:   fmt.Sprintf("%d", c.LSP.MockData.ItemCount),
+			Message: "mock_data item_count must be at least 1",
+		})
+	} else if c.LSP.MockData.ItemCount > 100000 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.mock_data.item_count",
+			Value:   fmt.Sprintf("%d", c.LSP.MockData.ItemCount),
+			Message: "mock_data item_count must be less than 100,000",
+		})
+	}
+
+	if len(c.LSP.MockData.CustomPrefixes) > 50 {
+		errors = append(errors, ValidationError{
+			Field:   "lsp.mock_data.custom_prefixes",
+			Value:   fmt.Sprintf("%v", c.LSP.MockData.CustomPrefixes),
+			Message: "custom_prefixes list cannot exceed 50 items",
+		})
+	}
+
+	// Validate custom prefixes
+	for i, prefix := range c.LSP.MockData.CustomPrefixes {
+		if len(prefix) > 50 {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.mock_data.custom_prefixes[%d]", i),
+				Value:   prefix,
+				Message: "custom prefix must be less than 50 characters",
+			})
+		}
+		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, prefix); !matched {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.mock_data.custom_prefixes[%d]", i),
+				Value:   prefix,
+				Message: "custom prefix can only contain letters, numbers, hyphens, and underscores",
+			})
+		}
+	}
+
+	// Validate languages
+	for i, lang := range c.LSP.MockData.Languages {
+		if len(lang) < 2 || len(lang) > 20 {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.mock_data.languages[%d]", i),
+				Value:   lang,
+				Message: "language name must be between 2 and 20 characters",
+			})
+		}
+		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, lang); !matched {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("lsp.mock_data.languages[%d]", i),
+				Value:   lang,
+				Message: "language name can only contain letters, numbers, hyphens, and underscores",
+			})
+		}
 	}
 
 	if len(errors) > 0 {
@@ -505,9 +903,17 @@ func mergeConfigs(base, override *ServerConfig) *ServerConfig {
 		result.Logging.Format = override.Logging.Format
 	}
 
-	// Merge LSP settings (simplified - in real implementation would be more thorough)
+	// Merge LSP settings with nested configuration merging
 	if override.LSP.InitializeTimeout.Duration() != 0 {
 		result.LSP.InitializeTimeout = override.LSP.InitializeTimeout
+	}
+
+	// Merge Completion config
+	if override.LSP.CompletionConfig.MaxItems != 0 {
+		result.LSP.CompletionConfig.MaxItems = override.LSP.CompletionConfig.MaxItems
+	}
+	if override.LSP.CompletionConfig.CaseSensitive {
+		result.LSP.CompletionConfig.CaseSensitive = override.LSP.CompletionConfig.CaseSensitive
 	}
 
 	return &result
