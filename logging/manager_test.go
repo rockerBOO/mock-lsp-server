@@ -32,10 +32,11 @@ func TestManager_GetDefaultConfigPath(t *testing.T) {
 			name:    "regular user",
 			appName: "test",
 			user: &user.User{
-				Uid: "1000",
+				Uid:  "1000",
+				HomeDir: "/home/testuser", // Add a mock home directory
 			},
 			shouldEnsureDir: false,
-			want:            filepath.Join(".config", "test", "config.json"),
+			want:            filepath.Join("/home/testuser", ".config", "test", "config.json"), // Update expected path
 			wantErr:         false,
 		},
 	}
