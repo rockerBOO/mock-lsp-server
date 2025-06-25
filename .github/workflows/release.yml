@@ -67,12 +67,16 @@ jobs:
           # Here you would typically generate more detailed release notes,
           # perhaps by parsing commit messages or using a dedicated changelog generator.
           # For this example, we'll just put a placeholder.
-          RELEASE_NOTES="Release \`${{ github.ref_name }}\`\n\n"
-          RELEASE_NOTES+="This release includes changes to the following files:\n"
-          for file in ${{ steps.changelog.outputs.all_changed_files }}; do
-            RELEASE_NOTES+="- \`${{ file }}\`\n"
+          RELEASE_NOTES="Release \`${{ github.ref_name }}\`"$'\n'$'\n'
+          RELEASE_NOTES+="This release includes changes to the following files:"$'\n'
+          # Convert space-separated files to array and iterate
+          IFS=' ' read -ra FILES <<< "${{ steps.changelog.outputs.all_changed_files }}"
+          for file in "${FILES[@]}"; do
+            RELEASE_NOTES+="- \`${file}\`"$'\n'
           done
-          echo "::set-output name=release_notes::${RELEASE_NOTES}"
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo -e "${RELEASE_NOTES}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
