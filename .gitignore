@@ -14,5 +14,7 @@
 !Makefile
 !Dockerfile
 
+!.github/workflows/*
+
 # ...even if they are in subdirectories
 !*/
