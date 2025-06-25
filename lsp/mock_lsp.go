@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"sync"
 
 	"github.com/myleshyson/lsprotocol-go/protocol"
 	"github.com/sourcegraph/jsonrpc2"
@@ -14,10 +15,11 @@ import (
 
 // MockLSPServer implements the LSP server handlers
 type MockLSPServer struct {
+	errorHandler *ErrorHandler
 	documents        map[string]*protocol.TextDocumentItem
 	logger           *log.Logger
 	structuredLogger *logging.StructuredLogger
-	errorHandler     *ErrorHandler
+	mu               sync.Mutex // Added mutex for protecting documents map
 }
 
 // NewMockLSPServer creates a new mock LSP server instance
@@ -25,6 +27,7 @@ func NewMockLSPServer(logger *log.Logger) *MockLSPServer {
 	server := &MockLSPServer{
 		documents: make(map[string]*protocol.TextDocumentItem),
 		logger:    logger,
+		// mu is implicitly initialized to its zero value (unlocked)
 	}
 	server.errorHandler = NewErrorHandler(server)
 	return server
@@ -36,6 +39,7 @@ func NewMockLSPServerWithStructuredLogger(structuredLogger *logging.StructuredLo
 		documents:        make(map[string]*protocol.TextDocumentItem),
 		logger:           fallbackLogger,
 		structuredLogger: structuredLogger,
+		// mu is implicitly initialized to its zero value (unlocked)
 	}
 	server.errorHandler = NewErrorHandler(server)
 	return server
@@ -59,23 +63,9 @@ func (s *MockLSPServer) logError(format string, args ...interface{}) {
 	}
 }
 
-// logDebug logs a debug message using structured logger if available, otherwise fallback
-func (s *MockLSPServer) logDebug(format string, args ...interface{}) {
-	if s.structuredLogger != nil {
-		s.structuredLogger.Debug(format, args...)
-	} else {
-		s.logger.Printf("DEBUG: "+format, args...)
-	}
-}
 
-// logWarning logs a warning message using structured logger if available, otherwise fallback
-func (s *MockLSPServer) logWarning(format string, args ...interface{}) {
-	if s.structuredLogger != nil {
-		s.structuredLogger.Warning(format, args...)
-	} else {
-		s.logger.Printf("WARNING: "+format, args...)
-	}
-}
+
+
 
 // Handle processes incoming JSON-RPC requests
 func (s *MockLSPServer) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) {
@@ -125,7 +115,7 @@ func (s *MockLSPServer) handleInitialize(ctx context.Context, conn *jsonrpc2.Con
 	var params protocol.InitializeParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
 		lspErr := NewInvalidParamsError("failed to parse initialize params", err)
-		lspErr.WithContext("method", "initialize")
+		lspErr = lspErr.WithContext("method", "initialize")
 		if replyErr := conn.ReplyWithError(ctx, req.ID, lspErr.ToJSONRPCError()); replyErr != nil {
 			s.errorHandler.HandleError(replyErr, "initialize_send_error")
 		}
@@ -180,7 +170,7 @@ func (s *MockLSPServer) handleTextDocumentDidOpen(ctx context.Context, conn *jso
 	var params protocol.DidOpenTextDocumentParams
 	if err := json.Unmarshal(*req.Params, &params); err != nil {
 		lspErr := NewInvalidParamsError("failed to parse textDocument/didOpen params", err)
-		lspErr.WithContext("method", "textDocument/didOpen")
+		lspErr = lspErr.WithContext("method", "textDocument/didOpen")
 		s.errorHandler.HandleError(lspErr, "didOpen_parse_params")
 		return
 	}

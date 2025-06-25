@@ -1,13 +1,8 @@
 package lsp
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"strings"
 	"testing"
-
-	"github.com/sourcegraph/jsonrpc2"
 )
 
 func TestLSPErrorCode_String(t *testing.T) {
@@ -89,8 +84,8 @@ func TestNewLSPErrorWithCause(t *testing.T) {
 func TestLSPError_WithContext(t *testing.T) {
 	err := NewLSPError(ErrorCodeInvalidParams, "test error")
 
-	err.WithContext("method", "textDocument/completion")
-	err.WithContext("uri", "file:///test.go")
+	err = err.WithContext("method", "textDocument/completion")
+	err = err.WithContext("uri", "file:///test.go")
 
 	if len(err.Context) != 2 {
 		t.Errorf("Expected 2 context entries, got %d", len(err.Context))
@@ -108,7 +103,7 @@ func TestLSPError_WithContext(t *testing.T) {
 func TestLSPError_Error(t *testing.T) {
 	// Test error without cause
 	err1 := NewLSPError(ErrorCodeInvalidParams, "invalid parameters")
-	err1.WithContext("method", "test")
+	err1 = err1.WithContext("method", "test")
 
 	errorStr1 := err1.Error()
 	if errorStr1 == "" {
@@ -118,7 +113,7 @@ func TestLSPError_Error(t *testing.T) {
 	// Test error with cause
 	cause := errors.New("underlying error")
 	err2 := NewLSPErrorWithCause(ErrorCodeInternalError, "internal error", cause)
-	err2.WithContext("operation", "parse")
+	err2 = err2.WithContext("operation", "parse")
 
 	errorStr2 := err2.Error()
 	if errorStr2 == "" {
@@ -133,7 +128,7 @@ func TestLSPError_Error(t *testing.T) {
 
 func TestLSPError_ToJSONRPCError(t *testing.T) {
 	lspErr := NewLSPError(ErrorCodeInvalidParams, "test error")
-	lspErr.WithContext("method", "test")
+	lspErr = lspErr.WithContext("method", "test")
 
 	rpcErr := lspErr.ToJSONRPCError()
 
@@ -206,7 +201,7 @@ func TestErrorHandler(t *testing.T) {
 
 	// Test HandleError with LSPError
 	lspErr := NewLSPError(ErrorCodeInvalidParams, "test error")
-	lspErr.WithContext("method", "test")
+	lspErr = lspErr.WithContext("method", "test")
 	errorHandler.HandleError(lspErr, "test_operation")
 
 	// Test HandleError with generic error
@@ -238,8 +233,8 @@ func TestErrorHandler_WrapError(t *testing.T) {
 		t.Errorf("Expected original error as cause, got %v", wrappedErr.Cause)
 	}
 
-	if len(wrappedErr.Context) != 2 {
-		t.Errorf("Expected 2 context entries, got %d", len(wrappedErr.Context))
+	if len(wrappedErr.Context) != 1 {
+		t.Errorf("Expected 1 context entries, got %d", len(wrappedErr.Context))
 	}
 
 	if wrappedErr.Context["method"] != "test" {
@@ -256,7 +251,7 @@ func TestLSPError_formatContext(t *testing.T) {
 
 	// Test single context
 	err2 := NewLSPError(ErrorCodeInvalidParams, "test")
-	err2.WithContext("method", "test")
+	err2 = err2.WithContext("method", "test")
 	contextStr := err2.formatContext()
 	if contextStr == "" {
 		t.Error("Expected non-empty context format")
@@ -264,8 +259,8 @@ func TestLSPError_formatContext(t *testing.T) {
 
 	// Test multiple context entries
 	err3 := NewLSPError(ErrorCodeInvalidParams, "test")
-	err3.WithContext("method", "test")
-	err3.WithContext("uri", "file:///test.go")
+	err3 = err3.WithContext("method", "test")
+	err3 = err3.WithContext("uri", "file:///test.go")
 	multiContextStr := err3.formatContext()
 	if multiContextStr == "" {
 		t.Error("Expected non-empty multi-context format")

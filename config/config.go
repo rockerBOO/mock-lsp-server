@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 )
+
+var alphanumericHyphenUnderscore = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ServerConfig represents the complete server configuration
 type ServerConfig struct {
@@ -477,13 +480,7 @@ func (c *ServerConfig) validateLogging() error {
 
 	// Level validation
 	validLevels := []string{"debug", "info", "warning", "error"}
-	levelValid := false
-	for _, level := range validLevels {
-		if strings.ToLower(c.Logging.Level) == level {
-			levelValid = true
-			break
-		}
-	}
+	levelValid := slices.Contains(validLevels, strings.ToLower(c.Logging.Level))
 
 	if !levelValid {
 		errors = append(errors, ValidationError{
@@ -767,13 +764,7 @@ func (c *ServerConfig) validateDiagnosticsConfig() error {
 	// Validate severities
 	validSeverities := []string{"error", "warning", "info", "hint"}
 	for i, severity := range c.LSP.DiagnosticsConfig.Severities {
-		valid := false
-		for _, validSeverity := range validSeverities {
-			if severity == validSeverity {
-				valid = true
-				break
-			}
-		}
+		valid := slices.Contains(validSeverities, severity)
 		if !valid {
 			errors = append(errors, ValidationError{
 				Field:   fmt.Sprintf("lsp.diagnostics.severities[%d]", i),
@@ -824,7 +815,7 @@ func (c *ServerConfig) validateMockDataConfig() error {
 				Message: "custom prefix must be less than 50 characters",
 			})
 		}
-		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, prefix); !matched {
+		if matched := alphanumericHyphenUnderscore.MatchString(prefix); !matched {
 			errors = append(errors, ValidationError{
 				Field:   fmt.Sprintf("lsp.mock_data.custom_prefixes[%d]", i),
 				Value:   prefix,
@@ -842,7 +833,7 @@ func (c *ServerConfig) validateMockDataConfig() error {
 				Message: "language name must be between 2 and 20 characters",
 			})
 		}
-		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, lang); !matched {
+		if matched := alphanumericHyphenUnderscore.MatchString(lang); !matched {
 			errors = append(errors, ValidationError{
 				Field:   fmt.Sprintf("lsp.mock_data.languages[%d]", i),
 				Value:   lang,

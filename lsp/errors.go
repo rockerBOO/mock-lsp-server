@@ -226,7 +226,10 @@ func (eh *ErrorHandler) HandleError(err error, operation string) {
 func (eh *ErrorHandler) WrapError(err error, code LSPErrorCode, message string, context map[string]interface{}) *LSPError {
 	lspErr := NewLSPErrorWithCause(code, message, err)
 	for k, v := range context {
-		lspErr.WithContext(k, v)
+		err := lspErr.WithContext(k, v)
+		if err != nil {
+			return lspErr
+		}
 	}
 	return lspErr
 }

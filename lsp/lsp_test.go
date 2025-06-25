@@ -557,18 +557,24 @@ func TestConcurrentDocumentAccess(t *testing.T) {
 				Version: 1,
 			}
 
+			server.mu.Lock()
 			// Add document
 			server.documents[uri] = doc
+			server.mu.Unlock()
 
+			server.mu.Lock()
 			// Read document
 			if retrieved, exists := server.documents[uri]; exists {
 				if retrieved.Text != fmt.Sprintf("package test%d", id) {
 					t.Errorf("Unexpected document content for %s", uri)
 				}
 			}
+			server.mu.Unlock()
 
+			server.mu.Lock()
 			// Remove document
 			delete(server.documents, uri)
+			server.mu.Unlock()
 
 			done <- true
 		}(i)
